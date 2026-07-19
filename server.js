@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import { expandMacro } from './lib/macros.js';
+import { getSearchFallbacks } from './lib/search-fallbacks.js';
 import { loadConfig } from './lib/config.js';
 import { normalizePlaywrightProxy, createProxyPool, buildProxyUrl } from './lib/proxy.js';
 import { createFlyHelpers } from './lib/fly.js';
@@ -1907,6 +1908,20 @@ async function isGoogleUnavailable(page) {
   return /Unable to connect|502 Bad Gateway or Proxy Error|Camoufox can't establish a connection/.test(bodyText);
 }
 
+async function isFallbackSearchBlocked(page, engine) {
+  if (!page || page.isClosed()) return true;
+  const url = page.url();
+  const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 1000) || '').catch(() => '');
+  if (/Unable to connect|502 Bad Gateway or Proxy Error|Camoufox can't establish a connection/i.test(bodyText)) return true;
+  if (engine === 'duckduckgo') {
+    return !/duckduckgo\.com/i.test(url) || /captcha|verify you are human|unusual traffic/i.test(bodyText);
+  }
+  if (engine === 'bing') {
+    return !/bing\.com/i.test(url) || /captcha|verify you are human|unusual traffic/i.test(bodyText);
+  }
+  return true;
+}
+
 async function rotateGoogleTab(userId, sessionKey, tabId, previousTabState, reason, reqId) {
   if (!previousTabState?.lastRequestedUrl || !isGoogleSearchUrl(previousTabState.lastRequestedUrl)) return null;
   if ((previousTabState.googleRetryCount || 0) >= 3) return null;
@@ -3021,6 +3036,8 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
       if (macro && macro !== '__NO__' && macro !== 'none' && macro !== 'null') {
         targetUrl = expandMacro(macro, query) || url;
       }
+      const searchFallbacks = getSearchFallbacks(macro, query);
+      let searchFallback = null;
       
       if (!targetUrl) throw new Error('url or macro required');
       
@@ -3063,6 +3080,40 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           }
         };
 
+        const navigateSearchFallback = async () => {
+          for (const candidate of searchFallbacks) {
+            targetUrl = candidate.url;
+            try {
+              await navigateCurrentPage();
+              if (await isFallbackSearchBlocked(tabState.page, candidate.engine)) {
+                log('warn', 'search fallback blocked', {
+                  reqId: req.reqId,
+                  tabId,
+                  engine: candidate.engine,
+                  url: tabState.page.url(),
+                });
+                continue;
+              }
+              searchFallback = { searchEngine: candidate.engine, fallbackFrom: 'google' };
+              log('info', 'search fallback succeeded', {
+                reqId: req.reqId,
+                tabId,
+                engine: candidate.engine,
+                url: tabState.page.url(),
+              });
+              return true;
+            } catch (fallbackErr) {
+              log('warn', 'search fallback failed', {
+                reqId: req.reqId,
+                tabId,
+                engine: candidate.engine,
+                error: fallbackErr.message,
+              });
+            }
+          }
+          return false;
+        };
+
         const recreateTabOnFreshContext = async () => {
           const previousRetryCount = tabState.googleRetryCount || 0;
           browserRestartsTotal.labels('google_search_block').inc();
@@ -3086,7 +3137,13 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
         };
 
         if (isGoogleSearch && proxyPool?.canRotateSessions) {
-          await prewarmGoogleHome();
+          await prewarmGoogleHome().catch((prewarmErr) => {
+            log('warn', 'google prewarm failed; continuing to search navigation', {
+              reqId: req.reqId,
+              tabId,
+              error: prewarmErr.message,
+            });
+          });
         }
 
         // Navigate with transparent retry on proxy/timeout errors.
@@ -3102,9 +3159,14 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             });
             browserRestartsTotal.labels('proxy_retry').inc();
             await recreateTabOnFreshContext();
-            if (isGoogleSearch) await prewarmGoogleHome();
-            await navigateCurrentPage();
-            recordNavSuccess(userId);
+            if (isGoogleSearch) await prewarmGoogleHome().catch(() => {});
+            try {
+              await navigateCurrentPage();
+              recordNavSuccess(userId);
+            } catch (retryErr) {
+              if (!isGoogleSearch || !await navigateSearchFallback()) throw retryErr;
+              recordNavSuccess(userId);
+            }
           } else {
             if (recordNavFailure(userId)) {
               await recoverUserSession(userId, 'navigate_failure');
@@ -3121,8 +3183,12 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             proxySession: browserLaunchProxy?.sessionId || null,
           });
           await recreateTabOnFreshContext();
-          await prewarmGoogleHome();
-          await navigateCurrentPage();
+          await prewarmGoogleHome().catch(() => {});
+          try {
+            await navigateCurrentPage();
+          } catch (retryErr) {
+            if (!await navigateSearchFallback()) throw retryErr;
+          }
         }
         
         // For Google SERP: skip eager ref building during navigate.
@@ -3134,11 +3200,26 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
         }
 
         if (isGoogleSearch && await isGoogleSearchBlocked(tabState.page)) {
-          return { ok: false, tabId, url: tabState.page.url(), refsAvailable: false, googleBlocked: true };
+          if (!await navigateSearchFallback()) {
+            return {
+              ok: false,
+              tabId,
+              url: tabState.page.url(),
+              refsAvailable: false,
+              googleBlocked: true,
+              searchFallbackAttempted: searchFallbacks.length > 0,
+            };
+          }
         }
         
         tabState.refs = await buildRefs(tabState.page);
-        return { ok: true, tabId, url: tabState.page.url(), refsAvailable: tabState.refs.size > 0 };
+        return {
+          ok: true,
+          tabId,
+          url: tabState.page.url(),
+          refsAvailable: tabState.refs.size > 0,
+          ...searchFallback,
+        };
       }, requestTimeoutMs());
     })(), requestTimeoutMs(), 'navigate'));
     
