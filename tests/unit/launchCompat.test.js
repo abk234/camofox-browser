@@ -60,6 +60,21 @@ describe('launch compatibility source contract', () => {
     expect(launch).toContain('headless: useVirtualDisplay ? false : !useDesktopWindow');
   });
 
+  test('falls back when optional GeoIP setup is unavailable', () => {
+    const geoipFallback = sourceBetween(
+      'function isCamoufoxGeoipError',
+      'async function launchBrowserInstance()'
+    );
+    const launchBrowser = sourceBetween(
+      'async function launchBrowserInstance()',
+      'async function ensureBrowser()'
+    );
+
+    expect(geoipFallback).toMatch(/GeoLite\|MaxMind\|geolocation/);
+    expect(geoipFallback).toContain('geoip: false');
+    expect(launchBrowser).toContain('buildLaunchOptionsWithGeoipFallback');
+  });
+
   test('health probe context also uses a null viewport', () => {
     const healthProbeOptions = sourceBetween(
       'testContext = await browser.newContext(',

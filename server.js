@@ -1077,6 +1077,25 @@ function _countActiveHandles() {
   try { return process._getActiveHandles().length; } catch { return null; }
 }
 
+function isCamoufoxGeoipError(err) {
+  return /Invalid locale:|GeoLite|MaxMind|geolocation/i.test(err?.message || String(err || ''));
+}
+
+async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
+  try {
+    return await launchOptions(baseOptions);
+  } catch (err) {
+    if (!baseOptions.geoip || !isCamoufoxGeoipError(err)) {
+      throw err;
+    }
+    log('warn', 'camoufox geoip setup failed; retrying launch options without geoip', {
+      ...attemptMeta,
+      error: err.message,
+    });
+    return await launchOptions({ ...baseOptions, geoip: false });
+  }
+}
+
 async function launchBrowserInstance() {
   const hostOS = getHostOS();
   const maxAttempts = proxyPool?.launchRetries ?? 1;
@@ -1123,7 +1142,7 @@ async function launchBrowserInstance() {
           excludeAddons: ['UBO'],
         });
       }
-      const options = await launchOptions({
+      const options = await buildLaunchOptionsWithGeoipFallback({
         executable_path: externalCamoufox?.executablePath,
         headless: useVirtualDisplay ? false : !useDesktopWindow,
         os: hostOS,
@@ -1133,6 +1152,10 @@ async function launchBrowserInstance() {
         geoip: !!launchProxy,
         virtual_display: vdDisplay,
         exclude_addons: CONFIG.disableDefaultAddons ? ['UBO'] : undefined,
+      }, {
+        attempt,
+        proxyServer: launchProxy?.server || null,
+        proxySession: launchProxy?.sessionId || null,
       });
       options.proxy = normalizePlaywrightProxy(options.proxy);
       // Playwright's launcher defaults handleSIGTERM/SIGINT/SIGHUP to true,
