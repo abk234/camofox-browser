@@ -28,6 +28,14 @@ describe('search fallbacks', () => {
       .toBe('https://duckduckgo.com/?q=C%2B%2B%20%26%20Rust');
   });
 
+  test('waits for organic Google result cards before falling back', () => {
+    expect(serverSource).toContain("import { hasGoogleOrganicResults } from './lib/google-serp.js';");
+    expect(serverSource).toContain('if (await hasGoogleOrganicResults(tabState.page)) {');
+    expect(serverSource).toContain("log('warn', 'google search returned no organic results; using fallback'");
+    expect(serverSource).toContain('googleResultsAvailable: false,');
+    expect(serverSource).toContain('searchFallbacksExhausted: searchFallbacks.length > 0,');
+  });
+
   test('navigation reports the engine used after Google fallback', () => {
     expect(serverSource).toContain("searchFallback = { searchEngine: candidate.engine, fallbackFrom: 'google' }");
     expect(serverSource).toContain('searchFallbackAttempted: searchFallbacks.length > 0');
