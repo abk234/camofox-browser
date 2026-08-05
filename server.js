@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import { expandMacro } from './lib/macros.js';
+import { getSearchFallbacks } from './lib/search-fallbacks.js';
+import { hasGoogleOrganicResults } from './lib/google-serp.js';
 import { loadConfig } from './lib/config.js';
 import { normalizePlaywrightProxy, createProxyPool, buildProxyUrl } from './lib/proxy.js';
 import { createFlyHelpers } from './lib/fly.js';
@@ -51,6 +53,7 @@ import {
 } from './lib/browser-errors.js';
 
 const CONFIG = loadConfig();
+const searchFallbacks = getSearchFallbacks(CONFIG);
 
 // --- Crash reporter (opt-in, anonymized GitHub issues) ---
 import { readFileSync } from 'fs';
@@ -3125,12 +3128,31 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           await navigateCurrentPage();
         }
         
-        // For Google SERP: skip eager ref building during navigate.
-        // Results render asynchronously after DOMContentLoaded -- the snapshot
-        // call will wait for and extract them.
+        // A Google HTTP 200 shell can have a search box but no organic cards after
+        // proxy rotation. Do not report it as a successful search: wait briefly for
+        // cards, then use the ordinary DuckDuckGo → Bing fallback.
         if (isGoogleSerp(tabState.page.url())) {
-          tabState.refs = new Map();
-          return { ok: true, tabId, url: tabState.page.url(), refsAvailable: false, googleSerp: true };
+          if (await hasGoogleOrganicResults(tabState.page)) {
+            tabState.refs = new Map();
+            return { ok: true, tabId, url: tabState.page.url(), refsAvailable: false, googleSerp: true };
+          }
+
+          log('warn', 'google search returned no organic results; using fallback', {
+            reqId: req.reqId,
+            tabId,
+            url: tabState.page.url(),
+          });
+          if (!await navigateSearchFallback()) {
+            return {
+              ok: false,
+              tabId,
+              url: tabState.page.url(),
+              refsAvailable: false,
+              googleResultsAvailable: false,
+              searchFallbackAttempted: searchFallbacks.length > 0,
+              searchFallbacksExhausted: searchFallbacks.length > 0,
+            };
+          }
         }
 
         if (isGoogleSearch && await isGoogleSearchBlocked(tabState.page)) {
