@@ -3054,10 +3054,17 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           const ac = tabState.navigateAbort = new AbortController();
           const gotoP = withPageLoadDuration('navigate', () => navigatePage(tabState.page, targetUrl));
           try {
-            await Promise.race([
+            const response = await Promise.race([
               gotoP,
               new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(new Error('Navigation aborted: tab deleted')), { once: true })),
             ]);
+            if (response && response.status() >= 500) {
+              tabState.lastSnapshot = null;
+              throw Object.assign(
+                new Error(`Destination server returned HTTP ${response.status()}`),
+                { statusCode: 502, code: 'destination_unavailable', retryable: true },
+              );
+            }
             tabState.visitedUrls.add(targetUrl);
             tabState.lastSnapshot = null;
           } catch (err) {
@@ -3065,6 +3072,48 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             throw err;
           } finally {
             tabState.navigateAbort = null;
+          }
+        };
+
+        // Pages can close independently while the BrowserContext remains usable.
+        // Keep the public tab ID stable by replacing only that page and retrying
+        // this navigation once. Destination errors are never recovered as success.
+        const replaceDeadTabPage = async () => {
+          const previousTabState = tabState;
+          const createdPage = await createPageWithRecoveryForUser(userId, session);
+          session = createdPage.session;
+          const group = getTabGroup(session, currentSessionKey);
+          const replacementPage = createdPage.page;
+          const replacementLease = createdPage.lease;
+          let replacementAttached = false;
+          try {
+            tabState = createTabState(replacementPage);
+            tabState.googleRetryCount = previousTabState.googleRetryCount || 0;
+            attachDownloadListener(tabState, tabId, log, pluginEvents, userId);
+            group.set(tabId, tabState);
+            attachPopupHandler(replacementPage, userId, currentSessionKey);
+            replacementAttached = true;
+          } finally {
+            releasePageLease(session, replacementLease);
+            if (!replacementAttached) await safePageClose(replacementPage);
+          }
+          await clearTabDownloads(previousTabState).catch(() => {});
+          await safePageClose(previousTabState.page);
+          refreshActiveTabsGauge();
+        };
+
+        const navigateWithDeadPageRecovery = async () => {
+          if (tabState.page?.isClosed?.()) await replaceDeadTabPage();
+          try {
+            await navigateCurrentPage();
+          } catch (err) {
+            if (!isDeadContextError(err)) throw err;
+            log('warn', 'navigate found a dead tab page; replacing it once', {
+              reqId: req.reqId,
+              tabId,
+            });
+            await replaceDeadTabPage();
+            await navigateCurrentPage();
           }
         };
 
@@ -3151,7 +3200,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
         // If the proxy is blocked or the page times out, destroy the session,
         // get a fresh proxy, and retry once before failing to the caller.
         try {
-          await navigateCurrentPage();
+          await navigateWithDeadPageRecovery();
           recordNavSuccess(userId);
         } catch (navErr) {
           if ((isProxyError(navErr) || isTimeoutError(navErr)) && proxyPool?.canRotateSessions) {
@@ -3162,12 +3211,15 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             await recreateTabOnFreshContext();
             if (isGoogleSearch) await prewarmGoogleHome().catch(() => {});
             try {
-              await navigateCurrentPage();
+              await navigateWithDeadPageRecovery();
               recordNavSuccess(userId);
             } catch (retryErr) {
               if (!isGoogleSearch || !await navigateSearchFallback()) throw retryErr;
               recordNavSuccess(userId);
             }
+          } else if (isGoogleSearch && navErr.code === 'destination_unavailable' && await navigateSearchFallback()) {
+            // The Google request failed upstream; a successful fallback is the
+            // existing search behavior and is the only success reported here.
           } else {
             if (recordNavFailure(userId)) {
               await recoverUserSession(userId, 'navigate_failure');
@@ -3186,7 +3238,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           await recreateTabOnFreshContext();
           await prewarmGoogleHome().catch(() => {});
           try {
-            await navigateCurrentPage();
+            await navigateWithDeadPageRecovery();
           } catch (retryErr) {
             if (!await navigateSearchFallback()) throw retryErr;
           }

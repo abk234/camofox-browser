@@ -36,6 +36,11 @@ describe('search fallbacks', () => {
     expect(serverSource).toContain('searchFallbacksExhausted: searchFallbacks.length > 0,');
   });
 
+  test('keeps the Google fallback path for upstream 5xx responses', () => {
+    expect(serverSource).toContain("isGoogleSearch && navErr.code === 'destination_unavailable' && await navigateSearchFallback()");
+    expect(serverSource).toContain('if (response && response.status() >= 500) {\n              tabState.lastSnapshot = null;\n              throw Object.assign(');
+  });
+
   test('navigation reports the engine used after Google fallback', () => {
     expect(serverSource).toContain("searchFallback = { searchEngine: candidate.engine, fallbackFrom: 'google' }");
     expect(serverSource).toContain('searchFallbackAttempted: searchFallbacks.length > 0');

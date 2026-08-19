@@ -49,6 +49,23 @@ describe('Navigation', () => {
     }
   });
 
+  test('does not report an upstream 503 page as a successful navigation', async () => {
+    const client = createClient(serverUrl);
+
+    try {
+      const { tabId } = await client.createTab(`${testSiteUrl}/pageA`);
+      await client.getSnapshot(tabId);
+      await expect(client.navigate(tabId, `${testSiteUrl}/unavailable`)).rejects.toMatchObject({
+        status: 502,
+        data: expect.objectContaining({ code: 'destination_unavailable' }),
+      });
+      const snapshot = await client.getSnapshot(tabId, { offset: 1 });
+      expect(snapshot.snapshot).toContain('Temporarily unavailable');
+    } finally {
+      await client.cleanup();
+    }
+  });
+
   test('navigate back', async () => {
     const client = createClient(serverUrl);
     
