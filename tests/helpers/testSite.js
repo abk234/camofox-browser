@@ -36,6 +36,11 @@ function createTestApp() {
     `);
   });
   
+  // A deterministic upstream failure for navigation error handling tests.
+  app.get('/unavailable', (req, res) => {
+    res.status(503).send('Temporarily unavailable');
+  });
+
   // Page that fires a client-side redirect shortly after DOMContentLoaded
   app.get('/lateRedirect', (req, res) => {
     res.send(`
