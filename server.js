@@ -1439,7 +1439,9 @@ function getTabGroup(session, listItemId) {
 function isProxyError(err) {
   if (!err) return false;
   const msg = err.message || '';
-  return msg.includes('NS_ERROR_PROXY') || msg.includes('proxy connection') || msg.includes('Proxy connection');
+  return msg.includes('NS_ERROR_PROXY') || msg.includes('proxy connection') || msg.includes('Proxy connection') ||
+    msg.includes('NS_ERROR_CONNECTION_REFUSED') || msg.includes('NS_ERROR_NET_RESET') ||
+    msg.includes('NS_ERROR_NET_TIMEOUT') || msg.includes('NS_ERROR_UNKNOWN_HOST');
 }
 
 function handleRouteError(err, req, res, extraFields = {}) {
