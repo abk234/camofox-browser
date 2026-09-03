@@ -3069,8 +3069,46 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
       return await withTabLock(tabId, async () => {
         const currentSessionKey = found?.listItemId || resolvedSessionKey;
         const isGoogleSearch = isGoogleSearchUrl(targetUrl);
+        const isAmazonSearch = macro === '@amazon_search';
+
+        const navigateAmazonSearch = async () => {
+          const amazonHomeUrl = 'https://www.amazon.com/';
+          tabState.lastRequestedUrl = targetUrl;
+          const homeResponse = await withPageLoadDuration('navigate', () => tabState.page.goto(amazonHomeUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS }));
+          if (homeResponse && homeResponse.status() >= 500) {
+            tabState.lastSnapshot = null;
+            throw Object.assign(
+              new Error(`Destination server returned HTTP ${homeResponse.status()}`),
+              { statusCode: 502, code: 'destination_unavailable', retryable: true },
+            );
+          }
+
+          const searchInput = tabState.page.locator('#twotabsearchtextbox, input[name="field-keywords"], input[type="search"]').first();
+          await searchInput.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS });
+          let searchNavigation;
+          try {
+            searchNavigation = tabState.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS });
+            await searchInput.fill(query || '');
+            await searchInput.press('Enter');
+            const searchResponse = await searchNavigation;
+            if (searchResponse && searchResponse.status() >= 500) {
+              tabState.lastSnapshot = null;
+              throw Object.assign(
+                new Error(`Destination server returned HTTP ${searchResponse.status()}`),
+                { statusCode: 502, code: 'destination_unavailable', retryable: true },
+              );
+            }
+          } catch (err) {
+            searchNavigation?.catch(() => {});
+            throw err;
+          }
+          tabState.visitedUrls.add(amazonHomeUrl);
+          tabState.visitedUrls.add(targetUrl);
+          tabState.lastSnapshot = null;
+        };
 
         const navigateCurrentPage = async () => {
+          if (isAmazonSearch) return navigateAmazonSearch();
           tabState.lastRequestedUrl = targetUrl;
           const ac = tabState.navigateAbort = new AbortController();
           const gotoP = withPageLoadDuration('navigate', () => navigatePage(tabState.page, targetUrl, { timeout: NAVIGATE_TIMEOUT_MS }));

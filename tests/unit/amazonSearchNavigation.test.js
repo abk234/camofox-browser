@@ -1,0 +1,21 @@
+import fs from 'fs';
+import path from 'path';
+import { describe, expect, test } from '@jest/globals';
+
+const serverSource = fs.readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+
+describe('Amazon search navigation', () => {
+  test('opens Amazon home and submits the query through its search input', () => {
+    const navigateRoute = serverSource.slice(
+      serverSource.indexOf("app.post('/tabs/:tabId/navigate'"),
+      serverSource.indexOf('// Snapshot')
+    );
+
+    expect(navigateRoute).toContain("const isAmazonSearch = macro === '@amazon_search';");
+    expect(navigateRoute).toContain("const amazonHomeUrl = 'https://www.amazon.com/';");
+    expect(navigateRoute).toContain("page.goto(amazonHomeUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS })");
+    expect(navigateRoute).toContain("locator('#twotabsearchtextbox, input[name=\"field-keywords\"], input[type=\"search\"]')");
+    expect(navigateRoute).toContain("await searchInput.press('Enter');");
+    expect(navigateRoute).toContain('if (isAmazonSearch) return navigateAmazonSearch();');
+  });
+});
