@@ -3083,7 +3083,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             );
           }
 
-          const searchInput = tabState.page.locator('#twotabsearchtextbox, input[name="field-keywords"], input[type="search"]').first();
+          const searchInput = tabState.page.locator('input#twotabsearchtextbox:visible, input[name="field-keywords"]:visible, input[type="search"]:visible').first();
           await searchInput.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS });
           let searchNavigation;
           try {
