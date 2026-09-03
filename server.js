@@ -3093,7 +3093,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             let continueNavigation;
             try {
               continueNavigation = tabState.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS });
-              await continueShopping.click();
+              await continueShopping.click({ noWaitAfter: true });
               const continueResponse = await continueNavigation;
               if (continueResponse && continueResponse.status() >= 500) {
                 tabState.lastSnapshot = null;

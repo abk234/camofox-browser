@@ -18,7 +18,7 @@ describe('Amazon search navigation', () => {
     expect(navigateRoute).toContain("continueShopping.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS })");
     expect(navigateRoute).toContain("searchInput.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS })");
     expect(navigateRoute).toContain("if (amazonSurface === 'continue')");
-    expect(navigateRoute).toContain('await continueShopping.click();');
+    expect(navigateRoute).toContain('await continueShopping.click({ noWaitAfter: true });');
     expect(navigateRoute).toContain("locator('input#twotabsearchtextbox:visible, input[name=\"field-keywords\"]:visible, input[type=\"search\"]:visible')");
     expect(navigateRoute).toContain("await searchInput.press('Enter');");
     expect(navigateRoute).toContain('if (isAmazonSearch) return navigateAmazonSearch();');
