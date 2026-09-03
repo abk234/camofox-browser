@@ -3083,7 +3083,31 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
             );
           }
 
+          const continueShopping = tabState.page.getByRole('button', { name: /continue shopping/i });
           const searchInput = tabState.page.locator('input#twotabsearchtextbox:visible, input[name="field-keywords"]:visible, input[type="search"]:visible').first();
+          const amazonSurface = await Promise.race([
+            continueShopping.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS }).then(() => 'continue'),
+            searchInput.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS }).then(() => 'search'),
+          ]);
+          if (amazonSurface === 'continue') {
+            let continueNavigation;
+            try {
+              continueNavigation = tabState.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS });
+              await continueShopping.click();
+              const continueResponse = await continueNavigation;
+              if (continueResponse && continueResponse.status() >= 500) {
+                tabState.lastSnapshot = null;
+                throw Object.assign(
+                  new Error(`Destination server returned HTTP ${continueResponse.status()}`),
+                  { statusCode: 502, code: 'destination_unavailable', retryable: true },
+                );
+              }
+            } catch (err) {
+              continueNavigation?.catch(() => {});
+              throw err;
+            }
+          }
+
           await searchInput.waitFor({ state: 'visible', timeout: NAVIGATE_TIMEOUT_MS });
           let searchNavigation;
           try {
