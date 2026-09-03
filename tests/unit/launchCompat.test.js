@@ -71,6 +71,7 @@ describe('launch compatibility source contract', () => {
     );
 
     expect(geoipFallback).toMatch(/GeoLite\|MaxMind\|geolocation/);
+    expect(geoipFallback).toContain('public proxy IP address');
     expect(geoipFallback).toContain('geoip: false');
     expect(launchBrowser).toContain('buildLaunchOptionsWithGeoipFallback');
   });

@@ -1078,7 +1078,7 @@ function _countActiveHandles() {
 }
 
 function isCamoufoxGeoipError(err) {
-  return /Invalid locale:|GeoLite|MaxMind|geolocation/i.test(err?.message || String(err || ''));
+  return /Invalid locale:|GeoLite|MaxMind|geolocation|public proxy IP address/i.test(err?.message || String(err || ''));
 }
 
 async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
