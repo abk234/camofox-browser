@@ -69,6 +69,16 @@ describe('loadConfig', () => {
     expect(loadConfig().browserRssRestartThresholdMb).toBe(2048);
   });
 
+  test('configures and forwards navigation timeout', () => {
+    delete process.env.NAVIGATE_TIMEOUT_MS;
+    expect(loadConfig().navigateTimeoutMs).toBe(30000);
+
+    process.env.NAVIGATE_TIMEOUT_MS = '60000';
+    const config = loadConfig();
+    expect(config.navigateTimeoutMs).toBe(60000);
+    expect(config.serverEnv.NAVIGATE_TIMEOUT_MS).toBe('60000');
+  });
+
   test('reads newPageTimeoutMs from camofox.config.json with a 10s fallback', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'camofox-config-'));
     const configPath = path.join(dir, 'camofox.config.json');

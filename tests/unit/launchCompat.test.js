@@ -68,4 +68,16 @@ describe('launch compatibility source contract', () => {
 
     expect(healthProbeOptions).toContain('viewport: null');
   });
+
+  test('uses the configured navigation timeout without racing its request deadline', () => {
+    const navigateRoute = sourceBetween(
+      "app.post('/tabs/:tabId/navigate'",
+      '// Snapshot'
+    );
+
+    expect(serverSource).toContain('function navigationRequestTimeoutMs()');
+    expect(serverSource).toContain('NAVIGATE_TIMEOUT_MS + 5000');
+    expect(navigateRoute).toContain('timeout: NAVIGATE_TIMEOUT_MS');
+    expect(navigateRoute).toContain("})(), navigationRequestTimeoutMs(), 'navigate'))");
+  });
 });

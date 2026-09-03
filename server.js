@@ -598,6 +598,10 @@ function requestTimeoutMs(baseMs = HANDLER_TIMEOUT_MS) {
   return proxyPool?.canRotateSessions ? Math.max(baseMs, 180000) : baseMs;
 }
 
+function navigationRequestTimeoutMs() {
+  return Math.max(requestTimeoutMs(), NAVIGATE_TIMEOUT_MS + 5000);
+}
+
 const userConcurrency = new Map();
 
 async function withUserLimit(userId, operation) {
@@ -1958,10 +1962,10 @@ async function rotateGoogleTab(userId, sessionKey, tabId, previousTabState, reas
     proxySession: session.proxySessionId || null,
   });
 
-  await withPageLoadDuration('navigate', () => navigatePage(page, 'https://www.google.com/'));
+  await withPageLoadDuration('navigate', () => navigatePage(page, 'https://www.google.com/', { timeout: NAVIGATE_TIMEOUT_MS }));
   tabState.visitedUrls.add('https://www.google.com/');
   await page.waitForTimeout(1200);
-  await withPageLoadDuration('navigate', () => navigatePage(page, tabState.lastRequestedUrl));
+  await withPageLoadDuration('navigate', () => navigatePage(page, tabState.lastRequestedUrl, { timeout: NAVIGATE_TIMEOUT_MS }));
   tabState.visitedUrls.add(tabState.lastRequestedUrl);
   return { session, tabState };
 }
@@ -3044,7 +3048,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
         const navigateCurrentPage = async () => {
           tabState.lastRequestedUrl = targetUrl;
           const ac = tabState.navigateAbort = new AbortController();
-          const gotoP = withPageLoadDuration('navigate', () => navigatePage(tabState.page, targetUrl));
+          const gotoP = withPageLoadDuration('navigate', () => navigatePage(tabState.page, targetUrl, { timeout: NAVIGATE_TIMEOUT_MS }));
           try {
             const response = await Promise.race([
               gotoP,
@@ -3114,7 +3118,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           const prewarm = await createLeasedPage(session);
           const prewarmPage = prewarm.page;
           try {
-            await withPageLoadDuration('navigate', () => navigatePage(prewarmPage, 'https://www.google.com/'));
+            await withPageLoadDuration('navigate', () => navigatePage(prewarmPage, 'https://www.google.com/', { timeout: NAVIGATE_TIMEOUT_MS }));
             tabState.visitedUrls.add('https://www.google.com/');
             await prewarmPage.waitForTimeout(1200);
           } finally {
@@ -3284,8 +3288,8 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           refsAvailable: tabState.refs.size > 0,
           ...searchFallback,
         };
-      }, requestTimeoutMs());
-    })(), requestTimeoutMs(), 'navigate'));
+      }, navigationRequestTimeoutMs());
+    })(), navigationRequestTimeoutMs(), 'navigate'));
     
     log('info', 'navigated', { reqId: req.reqId, tabId, url: result.url });
     pluginEvents.emit('tab:navigated', { userId: req.body.userId, tabId, url: result.url, prevUrl: null });
