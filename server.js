@@ -1077,13 +1077,15 @@ function _countActiveHandles() {
   try { return process._getActiveHandles().length; } catch { return null; }
 }
 
+const GEOIP_SETUP_TIMEOUT_MS = 10000;
+
 function isCamoufoxGeoipError(err) {
-  return /Invalid locale:|GeoLite|MaxMind|geolocation|public proxy IP address/i.test(err?.message || String(err || ''));
+  return /Invalid locale:|GeoLite|MaxMind|geolocation|public proxy IP address|GeoIP setup timed out/i.test(err?.message || String(err || ''));
 }
 
 async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
   try {
-    return await launchOptions(baseOptions);
+    return await withTimeout(launchOptions(baseOptions), GEOIP_SETUP_TIMEOUT_MS, 'GeoIP setup');
   } catch (err) {
     if (!baseOptions.geoip || !isCamoufoxGeoipError(err)) {
       throw err;
