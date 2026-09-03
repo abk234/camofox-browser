@@ -2162,53 +2162,43 @@ async function extractGoogleSerp(page) {
     
     const resultContainer = document.querySelector('#rso') || document.querySelector('#search');
     if (resultContainer) {
-      const resultBlocks = resultContainer.querySelectorAll(':scope > div');
-      for (const block of resultBlocks) {
-        const h3 = block.querySelector('h3');
-        const mainLink = h3 ? h3.closest('a') : null;
-        
-        if (h3 && mainLink) {
-          const title = h3.textContent.trim().replace(/"/g, '\\"');
-          const href = mainLink.href;
-          const cite = block.querySelector('cite');
-          const displayUrl = cite ? cite.textContent.trim() : '';
-          
-          let snippet = '';
-          for (const sel of ['[data-sncf]', '[data-content-feature="1"]', '.VwiC3b', 'div[style*="-webkit-line-clamp"]', 'span.aCOpRe']) {
-            const el = block.querySelector(sel);
-            if (el) { snippet = el.textContent.trim().slice(0, 300); break; }
-          }
-          if (!snippet) {
-            const allText = block.textContent.trim().replace(/\s+/g, ' ');
-            const titleLen = title.length + (displayUrl ? displayUrl.length : 0);
-            if (allText.length > titleLen + 20) {
-              snippet = allText.slice(titleLen).trim().slice(0, 300);
-            }
-          }
-          
-          const refId = addRef('link', title);
-          snapshot.push('- link "' + title + '" [' + refId + ']:');
-          snapshot.push('  - /url: ' + href);
-          if (displayUrl) snapshot.push('  - cite: ' + displayUrl);
-          if (snippet) snapshot.push('  - text: ' + snippet);
-        } else {
-          const blockLinks = block.querySelectorAll('a[href^="http"]:not([href*="google.com/search"])');
-          if (blockLinks.length > 0) {
-            const blockText = block.textContent.trim().replace(/\s+/g, ' ').slice(0, 200);
-            if (blockText.length > 10) {
-              snapshot.push('- group:');
-              snapshot.push('  - text: ' + blockText);
-              blockLinks.forEach(a => {
-                const linkText = (a.textContent || '').trim().replace(/"/g, '\\"').slice(0, 100);
-                if (linkText.length > 2) {
-                  const refId = addRef('link', linkText);
-                  snapshot.push('  - link "' + linkText + '" [' + refId + ']:');
-                  snapshot.push('    - /url: ' + a.href);
-                }
-              });
-            }
-          }
+      const seenResultUrls = new Set();
+      const resultHeadings = resultContainer.querySelectorAll('h3');
+      for (const h3 of resultHeadings) {
+        const mainLink = h3.closest('a[href]');
+        if (!mainLink || !mainLink.href || seenResultUrls.has(mainLink.href)) continue;
+        if (mainLink.href.includes('google.com/search')) continue;
+        seenResultUrls.add(mainLink.href);
+
+        // Google's organic cards are nested several wrappers below #rso. Walk up
+        // to the nearest result-sized container instead of assuming direct children.
+        const block = h3.closest('.MjjYud, .g, [data-snhf], [data-content-feature]')
+          || mainLink.parentElement?.parentElement
+          || mainLink.parentElement
+          || resultContainer;
+        const title = h3.textContent.trim().replace(/"/g, '\\"');
+        if (!title) continue;
+        const href = mainLink.href;
+        const cite = block.querySelector('cite');
+        const displayUrl = cite ? cite.textContent.trim() : '';
+
+        let snippet = '';
+        for (const sel of ['[data-sncf]', '[data-content-feature="1"]', '.VwiC3b', 'div[style*="-webkit-line-clamp"]', 'span.aCOpRe']) {
+          const el = block.querySelector(sel);
+          if (el && !h3.contains(el)) { snippet = el.textContent.trim().slice(0, 300); break; }
         }
+        if (!snippet) {
+          const allText = block.textContent.trim().replace(/\s+/g, ' ');
+          const titleOffset = allText.indexOf(h3.textContent.trim());
+          const afterTitle = titleOffset >= 0 ? allText.slice(titleOffset + h3.textContent.trim().length) : allText;
+          if (afterTitle.length > 20) snippet = afterTitle.trim().slice(0, 300);
+        }
+
+        const refId = addRef('link', title);
+        snapshot.push('- link "' + title + '" [' + refId + ']:');
+        snapshot.push('  - /url: ' + href);
+        if (displayUrl) snapshot.push('  - cite: ' + displayUrl);
+        if (snippet) snapshot.push('  - text: ' + snippet);
       }
     }
     
