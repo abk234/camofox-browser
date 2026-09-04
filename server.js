@@ -37,6 +37,7 @@ import { actionFromReq, classifyError } from './lib/request-utils.js';
 import { cleanupOrphanedTempFiles, cleanupStaleFirefoxProfiles, removeXvfbDisplayFiles } from './lib/tmp-cleanup.js';
 import { coalesceInflight } from './lib/inflight.js';
 import { INTERACTIVE_ROLES } from './lib/interactive-roles.js';
+import { selectOption } from './lib/select-option.js';
 import { visibleSelectorCandidate } from './lib/visible-selector.js';
 import { createPageWithSessionRecovery } from './lib/new-page-recovery.js';
 import { resolveUploadPaths } from './lib/upload-paths.js';
@@ -4298,6 +4299,39 @@ app.post('/tabs/:tabId/type', async (req, res) => {
         log('warn', 'post-timeout refresh failed', { error: refreshErr.message });
       }
     }
+    handleRouteError(err, req, res);
+  }
+});
+
+// Select a native form option by its visible label or HTML value.
+app.post('/tabs/:tabId/select', async (req, res) => {
+  const tabId = req.params.tabId;
+  try {
+    const { userId, ref, selector, option } = req.body;
+    const session = sessions.get(normalizeUserId(userId));
+    const found = session && findTab(session, tabId);
+    if (!found) return tabNotFoundResponse(res, req.params.tabId || req.body?.tabId);
+    if ((!ref && !selector) || typeof option !== 'string' || !option) {
+      return res.status(400).json({ error: 'ref or selector and a nonempty option are required' });
+    }
+    const selectorErr = selectorValidationError(selector);
+    if (selectorErr) throw invalidSelectorError(selectorErr);
+    session.lastAccess = Date.now();
+    const { tabState } = found;
+    tabState.toolCalls++; tabState.consecutiveTimeouts = 0; tabState.consecutiveFailures = 0;
+    await withTabLock(tabId, async () => {
+      let locator = ref ? refToLocator(tabState.page, ref, tabState.refs) : tabState.page.locator(selector);
+      if (!locator && ref) {
+        tabState.refs = await refreshTabRefs(tabState, { reason: 'select' });
+        locator = refToLocator(tabState.page, ref, tabState.refs);
+      }
+      if (!locator) throw new StaleRefsError(ref, `e${tabState.refs.size}`, tabState.refs.size);
+      await selectOption(locator, option);
+    });
+    pluginEvents.emit('tab:select', { userId, tabId, ref, option });
+    res.json({ ok: true });
+  } catch (err) {
+    log('error', 'select failed', { reqId: req.reqId, error: err.message });
     handleRouteError(err, req, res);
   }
 });
