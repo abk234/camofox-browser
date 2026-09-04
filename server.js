@@ -36,6 +36,7 @@ import {
 import { actionFromReq, classifyError } from './lib/request-utils.js';
 import { cleanupOrphanedTempFiles, cleanupStaleFirefoxProfiles, removeXvfbDisplayFiles } from './lib/tmp-cleanup.js';
 import { coalesceInflight } from './lib/inflight.js';
+import { INTERACTIVE_ROLES } from './lib/interactive-roles.js';
 import { visibleSelectorCandidate } from './lib/visible-selector.js';
 import { createPageWithSessionRecovery } from './lib/new-page-recovery.js';
 import { resolveUploadPaths } from './lib/upload-paths.js';
@@ -178,13 +179,8 @@ app.use(accessKeyMiddleware(CONFIG));
 
 const ALLOWED_URL_SCHEMES = ['http:', 'https:'];
 
-// Interactive roles to include - exclude combobox to avoid opening complex widgets
-// (date pickers, dropdowns) that can interfere with navigation
-const INTERACTIVE_ROLES = [
-  'button', 'link', 'textbox', 'checkbox', 'radio',
-  'menuitem', 'tab', 'searchbox', 'slider', 'spinbutton', 'switch'
-  // 'combobox' excluded - can trigger date pickers and complex dropdowns
-];
+// Interactive roles to include. Combobox is excluded to avoid opening complex
+// widgets (date pickers, dropdowns) that can interfere with navigation.
 
 // Patterns to skip (date pickers, calendar widgets -- NOT expiration/expiry fields)
 const SKIP_PATTERNS = [
