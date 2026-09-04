@@ -36,6 +36,7 @@ import {
 import { actionFromReq, classifyError } from './lib/request-utils.js';
 import { cleanupOrphanedTempFiles, cleanupStaleFirefoxProfiles, removeXvfbDisplayFiles } from './lib/tmp-cleanup.js';
 import { coalesceInflight } from './lib/inflight.js';
+import { visibleSelectorCandidate } from './lib/visible-selector.js';
 import { createPageWithSessionRecovery } from './lib/new-page-recovery.js';
 import { resolveUploadPaths } from './lib/upload-paths.js';
 import { acquirePageLease, hasActivePageLeases, isPageLeased, releasePageLease, setLeasedPage } from './lib/page-lease.js';
@@ -3801,7 +3802,19 @@ app.post('/tabs/:tabId/click', async (req, res) => {
       const onGoogleSerp = isGoogleSerp(tabState.page.url());
       
       const doClick = async (locatorOrSelector, isLocator) => {
-        const locator = isLocator ? locatorOrSelector : tabState.page.locator(locatorOrSelector);
+        let locator = isLocator ? locatorOrSelector : tabState.page.locator(locatorOrSelector);
+        // CSS selectors supplied by callers can match both the visible menu and
+        // inactive template copies. Prefer one visible match when that is
+        // unambiguous, while leaving selector lists untouched because appending
+        // :visible would change their meaning.
+        const visibleSelector = isLocator ? null : visibleSelectorCandidate(locatorOrSelector);
+        if (visibleSelector) {
+          const visibleLocator = tabState.page.locator(visibleSelector);
+          if (await visibleLocator.count() === 1) {
+            locator = visibleLocator;
+            log('info', 'click constrained selector to visible match', { selector: locatorOrSelector });
+          }
+        }
         const click = async (options) => clickWithDownloadGuard(tabState, () => locator.click(options));
         
         if (onGoogleSerp) {
