@@ -179,8 +179,7 @@ app.use(accessKeyMiddleware(CONFIG));
 
 const ALLOWED_URL_SCHEMES = ['http:', 'https:'];
 
-// Interactive roles to include. Combobox is excluded to avoid opening complex
-// widgets (date pickers, dropdowns) that can interfere with navigation.
+// Accessible control roles are defined in lib/interactive-roles.js.
 
 // Patterns to skip (date pickers, calendar widgets -- NOT expiration/expiry fields)
 const SKIP_PATTERNS = [
@@ -2356,8 +2355,6 @@ async function _buildRefsInner(page, refs, start) {
       const [, role, name] = match;
       const normalizedRole = role.toLowerCase();
       
-      if (normalizedRole === 'combobox') continue;
-      
       if (name && SKIP_PATTERNS.some(p => p.test(name))) continue;
       
       if (INTERACTIVE_ROLES.includes(normalizedRole)) {
@@ -2416,7 +2413,6 @@ async function _buildRefsInner(page, refs, start) {
           if (match) {
             const [, role, name] = match;
             const normalizedRole = role.toLowerCase();
-            if (normalizedRole === 'combobox') continue;
             if (name && SKIP_PATTERNS.some(p => p.test(name))) continue;
             
             if (INTERACTIVE_ROLES.includes(normalizedRole)) {
@@ -3556,7 +3552,6 @@ app.get('/tabs/:tabId/snapshot', async (req, res) => {
           if (match) {
             const [, prefix, role, nameMatch, name, suffix] = match;
             const normalizedRole = role.toLowerCase();
-            if (normalizedRole === 'combobox') return line;
             if (name && SKIP_PATTERNS.some(p => p.test(name))) return line;
             if (INTERACTIVE_ROLES.includes(normalizedRole)) {
               const normalizedName = name || '';

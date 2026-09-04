@@ -5,7 +5,7 @@ describe('INTERACTIVE_ROLES', () => {
     expect(INTERACTIVE_ROLES).toContain('listitem');
   });
 
-  test('continues to exclude combobox controls', () => {
-    expect(INTERACTIVE_ROLES).not.toContain('combobox');
+  test('includes combobox controls', () => {
+    expect(INTERACTIVE_ROLES).toContain('combobox');
   });
 });
