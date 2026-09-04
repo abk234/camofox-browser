@@ -39,6 +39,7 @@ import { coalesceInflight } from './lib/inflight.js';
 import { INTERACTIVE_ROLES } from './lib/interactive-roles.js';
 import { selectOption } from './lib/select-option.js';
 import { visibleSelectorCandidate } from './lib/visible-selector.js';
+import { normalizeBrowserKey } from './lib/browser-key.js';
 import { createPageWithSessionRecovery } from './lib/new-page-recovery.js';
 import { resolveUploadPaths } from './lib/upload-paths.js';
 import { acquirePageLease, hasActivePageLeases, isPageLeased, releasePageLease, setLeasedPage } from './lib/page-lease.js';
@@ -4391,12 +4392,13 @@ app.post('/tabs/:tabId/press', async (req, res) => {
     
     const { tabState } = found;
     tabState.toolCalls++; tabState.consecutiveTimeouts = 0; tabState.consecutiveFailures = 0;
+    const normalizedKey = normalizeBrowserKey(key);
     
     await withTabLock(tabId, async () => {
-      await tabState.page.keyboard.press(key);
+      await tabState.page.keyboard.press(normalizedKey);
     });
     
-    pluginEvents.emit('tab:press', { userId, tabId, key });
+    pluginEvents.emit('tab:press', { userId, tabId, key: normalizedKey });
     res.json({ ok: true });
   } catch (err) {
     log('error', 'press failed', { reqId: req.reqId, error: err.message });
