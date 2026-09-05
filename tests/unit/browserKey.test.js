@@ -8,8 +8,9 @@ describe('normalizeBrowserKey', () => {
     expect(normalizeBrowserKey('cmd+option+P')).toBe('Meta+Alt+P');
   });
 
-  test('preserves Playwright key names', () => {
+  test('normalizes named keys case-insensitively', () => {
     expect(normalizeBrowserKey('Enter')).toBe('Enter');
+    expect(normalizeBrowserKey('ENTER')).toBe('Enter');
     expect(normalizeBrowserKey('TAB')).toBe('TAB');
   });
 });
