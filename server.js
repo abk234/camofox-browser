@@ -4304,6 +4304,55 @@ app.post('/tabs/:tabId/type', async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /tabs/{tabId}/select:
+ *   post:
+ *     tags: [Interaction]
+ *     summary: Select a native form option
+ *     parameters:
+ *       - name: tabId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [userId, option]
+ *             properties:
+ *               userId:
+ *                 type: string
+ *               ref:
+ *                 type: string
+ *               selector:
+ *                 type: string
+ *               option:
+ *                 type: string
+ *                 description: Visible option label or HTML value.
+ *     responses:
+ *       200:
+ *         description: Option selected.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *       400:
+ *         description: Bad request.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Tab not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // Select a native form option by its visible label or HTML value.
 app.post('/tabs/:tabId/select', async (req, res) => {
   const tabId = req.params.tabId;
