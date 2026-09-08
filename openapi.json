@@ -456,6 +456,15 @@
                     },
                     "url": {
                       "type": "string"
+                    },
+                    "httpStatus": {
+                      "type": "integer",
+                      "nullable": true,
+                      "description": "HTTP status of the optional initial document navigation."
+                    },
+                    "navigationOk": {
+                      "type": "boolean",
+                      "description": "False when the optional initial document navigation returned HTTP 400 or higher."
                     }
                   }
                 }
@@ -606,11 +615,31 @@
         },
         "responses": {
           "200": {
-            "description": "Navigation result with snapshot.",
+            "description": "Navigation result. Destination HTTP status is reported even when a rendered error page is available.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tabId": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "httpStatus": {
+                      "type": "integer",
+                      "nullable": true,
+                      "description": "HTTP status of the final document navigation when available."
+                    },
+                    "navigationOk": {
+                      "type": "boolean",
+                      "description": "False when the final document returned an HTTP status of 400 or greater."
+                    }
+                  }
                 }
               }
             }
@@ -707,6 +736,10 @@
                     },
                     "snapshot": {
                       "type": "string"
+                    },
+                    "structure": {
+                      "type": "object",
+                      "description": "Optional bounded read-only DOM summary of forms and tables. The snapshot field remains unchanged."
                     },
                     "refsCount": {
                       "type": "integer"

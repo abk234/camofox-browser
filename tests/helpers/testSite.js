@@ -152,6 +152,23 @@ function createTestApp() {
       </body></html>
     `);
   });
+
+  app.get('/structure', (req, res) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html><head><title>Structure Test</title></head>
+      <body>
+        <form id="report-filters" method="get">
+          <label for="period">Period</label>
+          <select id="period" name="period"><option value="month">Month</option><option value="year" selected>Year</option></select>
+          <label for="from">From</label><input id="from" name="from" value="2022-01-01" />
+          <input id="api_token" name="api_token" value="must-not-appear" />
+          <button id="show-report" type="submit">Show Report</button>
+        </form>
+        <table id="sales"><thead><tr><th>Product</th><th>Quantity</th></tr></thead><tbody><tr><td>Yoga ball</td><td>7</td></tr></tbody></table>
+      </body></html>
+    `);
+  });
   
   // Page with refresh counter (to verify refresh actually works)
   let refreshCount = 0;

@@ -14,6 +14,7 @@ import { createFlyHelpers } from './lib/fly.js';
 import { createPluginEvents, loadPlugins } from './lib/plugins.js';
 import { requireAuth, accessKeyMiddleware, timingSafeCompare as _timingSafeCompare, isLoopbackAddress as _isLoopbackAddress } from './lib/auth.js';
 import { windowSnapshot } from './lib/snapshot.js';
+import { extractPageStructure, attachStructureRefs } from './lib/page-structure.js';
 import {
   MAX_DOWNLOAD_INLINE_BYTES,
   clearTabDownloads,
@@ -1746,7 +1747,9 @@ function createTabState(page) {
     failureJournal: [],
     healthTracker,
     lastSnapshot: null,
+    lastStructure: null,
     lastRequestedUrl: null,
+    lastNavigationHttpStatus: null,
     googleRetryCount: 0,
     navigateAbort: null,
     pressureObservedAt: Date.now(),
@@ -2826,6 +2829,13 @@ app.post('/pressure/cleanup', async (req, res) => {
  *                   type: string
  *                 url:
  *                   type: string
+ *                 httpStatus:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: HTTP status of the optional initial document navigation.
+ *                 navigationOk:
+ *                   type: boolean
+ *                   description: False when the optional initial document navigation returned HTTP 400 or higher.
  *       400:
  *         description: Missing required fields.
  *         content:
@@ -2910,7 +2920,8 @@ app.post('/tabs', async (req, res) => {
         if (urlErr) throw Object.assign(new Error(urlErr), { statusCode: 400 });
         tabState.lastRequestedUrl = url;
         try {
-          await withPageLoadDuration('open_url', () => navigatePage(page, url));
+          const navigationResponse = await withPageLoadDuration('open_url', () => navigatePage(page, url));
+          tabState.lastNavigationHttpStatus = typeof navigationResponse?.status === 'function' ? navigationResponse.status() : null;
           recordNavSuccess(userId);
         } catch (navErr) {
           if ((isProxyError(navErr) || isTimeoutError(navErr)) && proxyPool?.canRotateSessions) {
@@ -2933,7 +2944,8 @@ app.post('/tabs', async (req, res) => {
             releasePageLease(session, retryLease);
             attachPopupHandler(retryPage, userId, resolvedSessionKey);
             refreshActiveTabsGauge();
-            await withPageLoadDuration('open_url', () => navigatePage(retryPage, url));
+            const navigationResponse = await withPageLoadDuration('open_url', () => navigatePage(retryPage, url));
+            tabState.lastNavigationHttpStatus = typeof navigationResponse?.status === 'function' ? navigationResponse.status() : null;
             recordNavSuccess(userId);
           } else {
             if (recordNavFailure(userId)) {
@@ -2947,7 +2959,12 @@ app.post('/tabs', async (req, res) => {
       
       pluginEvents.emit('tab:created', { userId, tabId, page, url: page.url() });
       log('info', 'tab created', { reqId: req.reqId, tabId, userId, sessionKey: resolvedSessionKey, url: page.url() });
-      return { tabId, url: page.url() };
+      return {
+        tabId,
+        url: page.url(),
+        httpStatus: tabState.lastNavigationHttpStatus,
+        navigationOk: tabState.lastNavigationHttpStatus === null || tabState.lastNavigationHttpStatus < 400,
+      };
     })(), requestTimeoutMs(), 'tab create');
 
     res.json(result);
@@ -3013,11 +3030,25 @@ app.post('/tabs', async (req, res) => {
  *                 type: string
  *     responses:
  *       200:
- *         description: Navigation result with snapshot.
+ *         description: Navigation result. Destination HTTP status is reported even when a rendered error page is available.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
+ *               properties:
+ *                 ok:
+ *                   type: boolean
+ *                 tabId:
+ *                   type: string
+ *                 url:
+ *                   type: string
+ *                 httpStatus:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: HTTP status of the final document navigation when available.
+ *                 navigationOk:
+ *                   type: boolean
+ *                   description: False when the final document returned an HTTP status of 400 or greater.
  *       400:
  *         description: Bad request.
  *         content:
@@ -3055,6 +3086,7 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
       }
       const searchFallbacks = getSearchFallbacks(macro, query);
       let searchFallback = null;
+      let navigationHttpStatus = null;
       
       if (!targetUrl) throw new Error('url or macro required');
       
@@ -3136,6 +3168,8 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
               gotoP,
               new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(new Error('Navigation aborted: tab deleted')), { once: true })),
             ]);
+            tabState.lastNavigationHttpStatus = typeof response?.status === 'function' ? response.status() : null;
+            navigationHttpStatus = tabState.lastNavigationHttpStatus;
             if (response && response.status() >= 500) {
               tabState.lastSnapshot = null;
               throw Object.assign(
@@ -3368,6 +3402,8 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
           tabId,
           url: tabState.page.url(),
           refsAvailable: tabState.refs.size > 0,
+          httpStatus: navigationHttpStatus,
+          navigationOk: navigationHttpStatus === null || navigationHttpStatus < 400,
           ...searchFallback,
         };
       }, navigationRequestTimeoutMs());
@@ -3446,6 +3482,9 @@ app.post('/tabs/:tabId/navigate', async (req, res) => {
  *                   type: string
  *                 snapshot:
  *                   type: string
+ *                 structure:
+ *                   type: object
+ *                   description: Optional bounded read-only DOM summary of forms and tables. The snapshot field remains unchanged.
  *                 refsCount:
  *                   type: integer
  *                 truncated:
@@ -3480,7 +3519,7 @@ app.get('/tabs/:tabId/snapshot', async (req, res) => {
     // Cached chunk retrieval for offset>0 requests
     if (offset > 0 && tabState.lastSnapshot) {
       const win = windowSnapshot(tabState.lastSnapshot, offset);
-      const response = { url: tabState.page.url(), snapshot: win.text, refsCount: tabState.refs.size, truncated: win.truncated, totalChars: win.totalChars, hasMore: win.hasMore, nextOffset: win.nextOffset };
+      const response = { url: tabState.page.url(), snapshot: win.text, structure: tabState.lastStructure, refsCount: tabState.refs.size, truncated: win.truncated, totalChars: win.totalChars, hasMore: win.hasMore, nextOffset: win.nextOffset };
       if (req.query.includeScreenshot === 'true') {
         const pngBuffer = await tabState.page.screenshot({ type: 'png' });
         response.screenshot = { data: pngBuffer.toString('base64'), mimeType: 'image/png' };
@@ -3537,7 +3576,7 @@ app.get('/tabs/:tabId/snapshot', async (req, res) => {
       
       tabState.refs = await refreshTabRefs(tabState, { reason: 'snapshot' });
       const ariaYaml = await getAriaSnapshot(tabState.page);
-      
+      const structure = attachStructureRefs(await extractPageStructure(tabState.page), tabState.refs);
       let annotatedYaml = ariaYaml || '';
       if (annotatedYaml && tabState.refs.size > 0) {
         const refsByKey = new Map();
@@ -3572,12 +3611,14 @@ app.get('/tabs/:tabId/snapshot', async (req, res) => {
       }
       
       tabState.lastSnapshot = annotatedYaml;
+      tabState.lastStructure = structure;
       if (annotatedYaml) snapshotBytes.labels('full').observe(Buffer.byteLength(annotatedYaml, 'utf8'));
       const win = windowSnapshot(annotatedYaml, 0);
 
       const response = {
         url: tabState.page.url(),
         snapshot: win.text,
+        structure,
         refsCount: tabState.refs.size,
         truncated: win.truncated,
         totalChars: win.totalChars,
@@ -4376,6 +4417,11 @@ app.post('/tabs/:tabId/select', async (req, res) => {
         locator = refToLocator(tabState.page, ref, tabState.refs);
       }
       if (!locator) throw new StaleRefsError(ref, `e${tabState.refs.size}`, tabState.refs.size);
+      if (selector && await locator.count() === 0) {
+        const error = new Error('Selector did not match any element. Call snapshot and use a current element ref or a matching selector.');
+        error.statusCode = 422;
+        throw error;
+      }
       await selectOption(locator, option);
     });
     pluginEvents.emit('tab:select', { userId, tabId, ref, option });
@@ -6483,7 +6529,7 @@ app.get('/snapshot', async (req, res) => {
     // Cached chunk retrieval
     if (offset > 0 && tabState.lastSnapshot) {
       const win = windowSnapshot(tabState.lastSnapshot, offset);
-      const response = { ok: true, format: 'aria', targetId, url: tabState.page.url(), snapshot: win.text, refsCount: tabState.refs.size, truncated: win.truncated, totalChars: win.totalChars, hasMore: win.hasMore, nextOffset: win.nextOffset };
+      const response = { ok: true, format: 'aria', targetId, url: tabState.page.url(), snapshot: win.text, structure: tabState.lastStructure, refsCount: tabState.refs.size, truncated: win.truncated, totalChars: win.totalChars, hasMore: win.hasMore, nextOffset: win.nextOffset };
       if (req.query.includeScreenshot === 'true') {
         const pngBuffer = await tabState.page.screenshot({ type: 'png' });
         response.screenshot = { data: pngBuffer.toString('base64'), mimeType: 'image/png' };
@@ -6498,6 +6544,7 @@ app.get('/snapshot', async (req, res) => {
       const { refs: googleRefs, snapshot: googleSnapshot } = await extractGoogleSerp(tabState.page);
       tabState.refs = googleRefs;
       tabState.lastSnapshot = googleSnapshot;
+      tabState.lastStructure = null;
       snapshotBytes.labels('google_serp').observe(Buffer.byteLength(googleSnapshot, 'utf8'));
       const annotatedYaml = googleSnapshot;
       const win = windowSnapshot(annotatedYaml, 0);
@@ -6517,8 +6564,7 @@ app.get('/snapshot', async (req, res) => {
     tabState.refs = await buildRefs(tabState.page);
     
     const ariaYaml = await getAriaSnapshot(tabState.page);
-    
-    // Annotate YAML with ref IDs
+    const structure = attachStructureRefs(await extractPageStructure(tabState.page), tabState.refs);
     let annotatedYaml = ariaYaml || '';
     if (annotatedYaml && tabState.refs.size > 0) {
       const refsByKey = new Map();
@@ -6543,6 +6589,7 @@ app.get('/snapshot', async (req, res) => {
     }
     
     tabState.lastSnapshot = annotatedYaml;
+    tabState.lastStructure = structure;
     if (annotatedYaml) snapshotBytes.labels('full').observe(Buffer.byteLength(annotatedYaml, 'utf8'));
     const win = windowSnapshot(annotatedYaml, 0);
 
@@ -6552,6 +6599,7 @@ app.get('/snapshot', async (req, res) => {
       targetId,
       url: tabState.page.url(),
       snapshot: win.text,
+      structure,
       refsCount: tabState.refs.size,
       truncated: win.truncated,
       totalChars: win.totalChars,

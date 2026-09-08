@@ -49,6 +49,35 @@ describe('Navigation', () => {
     }
   });
 
+  test('reports a destination 404 without discarding the rendered page', async () => {
+    const client = createClient(serverUrl);
+
+    try {
+      const { tabId } = await client.createTab();
+      const result = await client.navigate(tabId, `${testSiteUrl}/not-found`);
+
+      expect(result).toMatchObject({ ok: true, httpStatus: 404, navigationOk: false });
+      const snapshot = await client.getSnapshot(tabId);
+      expect(snapshot.snapshot).toContain('Cannot GET /not-found');
+    } finally {
+      await client.cleanup();
+    }
+  });
+
+  test('reports a destination 404 from an initial URL without discarding the rendered page', async () => {
+    const client = createClient(serverUrl);
+
+    try {
+      const result = await client.createTab(`${testSiteUrl}/not-found`);
+
+      expect(result).toMatchObject({ httpStatus: 404, navigationOk: false });
+      const snapshot = await client.getSnapshot(result.tabId);
+      expect(snapshot.snapshot).toContain('Cannot GET /not-found');
+    } finally {
+      await client.cleanup();
+    }
+  });
+
   test('does not report an upstream 503 page as a successful navigation', async () => {
     const client = createClient(serverUrl);
 
