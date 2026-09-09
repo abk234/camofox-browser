@@ -41,6 +41,11 @@ function createTestApp() {
     res.status(503).send('Temporarily unavailable');
   });
 
+  // A response that never completes, used to exercise navigation timeouts.
+  app.get('/slow-navigation', () => {
+    // Deliberately leave the HTTP response open until the browser aborts it.
+  });
+
   // Page that fires a client-side redirect shortly after DOMContentLoaded
   app.get('/lateRedirect', (req, res) => {
     res.send(`

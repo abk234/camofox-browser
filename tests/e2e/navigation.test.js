@@ -49,6 +49,27 @@ describe('Navigation', () => {
     }
   });
 
+  test('keeps sibling tabs alive when a no-proxy navigation times out', async () => {
+    const client = createClient(serverUrl);
+
+    try {
+      const { tabId: existingTabId } = await client.createTab(`${testSiteUrl}/pageA`);
+      const { tabId } = await client.createTab();
+
+      await expect(client.request(
+        'POST',
+        `/tabs/${tabId}/navigate`,
+        { userId: client.userId, url: `${testSiteUrl}/slow-navigation` },
+        { timeout: 45000 },
+      )).rejects.toMatchObject({ status: 500 });
+
+      const existingTabSnapshot = await client.getSnapshot(existingTabId);
+      expect(existingTabSnapshot.snapshot).toContain('Welcome to Page A');
+    } finally {
+      await client.cleanup();
+    }
+  }, 60000);
+
   test('reports a destination 404 without discarding the rendered page', async () => {
     const client = createClient(serverUrl);
 
