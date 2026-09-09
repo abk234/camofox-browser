@@ -61,6 +61,28 @@ describe('loadConfig', () => {
     expect(config.serverEnv.CAMOFOX_EVALUATE_MAX_BODY_SIZE).toBe('10mb');
   });
 
+  test('preserves zero timeout values to disable session expiry and idle shutdown', () => {
+    process.env.SESSION_TIMEOUT_MS = '0';
+    process.env.BROWSER_IDLE_TIMEOUT_MS = '0';
+
+    const config = loadConfig();
+
+    expect(config.sessionTimeoutMs).toBe(0);
+    expect(config.browserIdleTimeoutMs).toBe(0);
+  });
+
+  test('uses default timeout values when timeout environment variables are unset or invalid', () => {
+    delete process.env.SESSION_TIMEOUT_MS;
+    delete process.env.BROWSER_IDLE_TIMEOUT_MS;
+    expect(loadConfig().sessionTimeoutMs).toBe(600000);
+    expect(loadConfig().browserIdleTimeoutMs).toBe(300000);
+
+    process.env.SESSION_TIMEOUT_MS = 'not-a-number';
+    process.env.BROWSER_IDLE_TIMEOUT_MS = 'not-a-number';
+    expect(loadConfig().sessionTimeoutMs).toBe(600000);
+    expect(loadConfig().browserIdleTimeoutMs).toBe(300000);
+  });
+
   test('configures browser RSS restart threshold', () => {
     delete process.env.BROWSER_RSS_RESTART_THRESHOLD_MB;
     expect(loadConfig().browserRssRestartThresholdMb).toBe(1500);
