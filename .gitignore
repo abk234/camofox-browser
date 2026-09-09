@@ -39,6 +39,13 @@ fly.toml
 # Camoufox cache
 .camoufox/
 
+# Local fork ops (fork-and-run-local)
+scripts/camofox-app.env
+scripts/.camofox-server.pid
+scripts/.camofox-lan-proxy.pid
+scripts/camofox-server.log
+docker-compose.override.yml
+
 # Test artifacts
 test-results/
 playwright-report/
