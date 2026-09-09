@@ -48,6 +48,7 @@ import { createReporter, createTabHealthTracker, collectResourceSnapshot, classi
 import { mountDocs } from './lib/openapi.js';
 import { initSentry, captureException as sentryCaptureException, setupExpressErrorHandler as setupSentryErrorHandler, flush as sentryFlush } from './lib/sentry.js';
 import { prepareExternalCamoufoxExecutable } from './lib/camoufox-executable.js';
+import { createVirtualDisplayRegistry } from './lib/plugin-capabilities.js';
 import { killProcessIds } from './lib/browser-processes.js';
 import { snapshotOwnedBrowserProcesses, survivingOwnedBrowserProcesses, profilePathsFromProcessSnapshot } from './lib/process-ownership.js';
 import {
@@ -1082,6 +1083,8 @@ function isCamoufoxGeoipError(err) {
   return /Invalid locale:|GeoLite|MaxMind|geolocation|public proxy IP address|GeoIP setup timed out/i.test(err?.message || String(err || ''));
 }
 
+const virtualDisplayRegistry = createVirtualDisplayRegistry(() => new DefaultVirtualDisplay());
+
 async function buildLaunchOptionsWithGeoipFallback(baseOptions, attemptMeta) {
   try {
     return await withTimeout(launchOptions(baseOptions), GEOIP_SETUP_TIMEOUT_MS, 'GeoIP setup');
@@ -1114,7 +1117,7 @@ async function launchBrowserInstance() {
     let candidateBrowser = null;
     try {
       if (os.platform() === 'linux' && !useDesktopWindow) {
-        localVirtualDisplay = pluginCtx.createVirtualDisplay();
+        localVirtualDisplay = virtualDisplayRegistry.create();
         vdDisplay = await localVirtualDisplay.get();
         log('info', 'xvfb virtual display started', { display: vdDisplay, attempt });
       }
@@ -7012,8 +7015,7 @@ const pluginCtx = {
   failuresTotal,
   metricsRegistry: getRegister,
   createMetric,
-  /** Factory for Xvfb virtual display. Plugins can replace this to customise resolution/args. */
-  createVirtualDisplay: () => new DefaultVirtualDisplay(),
+  registerVirtualDisplayProvider: (pluginName, factory) => virtualDisplayRegistry.register(pluginName, factory),
   /** The upstream VirtualDisplay class -- plugins can subclass it. */
   VirtualDisplay,
 };
