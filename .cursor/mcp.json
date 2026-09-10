@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "camofox-browser": {
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "/Users/lxupkzwjs/workspace_for_ai/eval/camofox-browser/mcp/server.mjs"
+      ],
+      "env": {
+        "CAMOFOX_BASE_URL": "http://localhost:9377",
+        "CAMOFOX_USER_ID": "cursor-camofox",
+        "CAMOFOX_SESSION_KEY": "default"
+      }
+    }
+  }
+}
